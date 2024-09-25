@@ -1,5 +1,5 @@
 ---
-title: "strange post with custom js"
+title: "hello world"
 date: 2024-09-24
 ---
 
