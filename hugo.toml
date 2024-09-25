@@ -1,0 +1,4 @@
+baseURL = 'https://blog.rajjoshi.me/'
+languageCode = 'en-us'
+title = "raj's blog"
+theme='nostyleplease'
