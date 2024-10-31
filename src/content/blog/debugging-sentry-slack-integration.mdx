@@ -1,0 +1,139 @@
+---
+title: Debugging a Slack Integration with Sentry's Trace View
+description: "With Sentry’s Trace View, identifying & debugging errors just became that much easier. See how Sentry can help with debugging a Slack integration here."
+pubDate: 2024-10-31
+updatedDate: 2024-10-31
+---
+
+import Callout from '@components/MDX/Callout.astro'
+
+## Introduction
+I'm an engineer at [Sentry](https://sentry.io), where I work on the core product and ecosystem teams. Recently, I worked on fixing a bug in our Slack integration that I wrote about on the [Sentry blog](https://blog.sentry.io/debugging-a-slack-integration-with-sentrys-trace-view/). This is a cross-post of that blog post.
+
+While building Sentry, we also use Sentry to identify bugs, performance slowdowns, and issues that worsen our users' experience. With our focus on keeping developers in their flow as much as possible, that often means identifying, fixing, and improving our integrations with other critical developer tools. 
+
+Recently, one of our customers reported an issue with our Slack integration that I was able to debug and resolve with the help of our Trace View. Using Sentry as my primary [debugging](https://blog.sentry.io/monitoring-observability-and-debuggability-explained/) tool made it quick to resolve the issue for our customer and confidently confirm the issue has stopped. This blog post recounts how I debugged and resolved this tricky issue.
+
+## Discovering the root cause of intermittent issues
+
+A few weeks ago, we received a customer report about an intermittent issue with our [Slack integration](https://sentry.io/integrations/slack/). The customer was *sometimes* having trouble archiving and resolving issues using the modal we generate when the customer clicks on “Resolve” or “Archive.” 
+
+![The Sentry “Archive Issue” modal that pops up in Slack. The modal has a Sentry logo with the title “Archive Issue”. In the body of the modal, it says “Archive” with a drop-down that is currently selecting “Until escalating”. At the bottom are two buttons: “Cancel” and “Archive”. In the top right are the “copy” and “exit” icon buttons.](~/assets/content/debugging-sentry-slack-integration/archive-issue-modal.png)
+
+I triggered a sample sentry error, and sure enough, when I got a notification in Slack and clicked on either “Archive” or “Resolve”/”Unresolve,” the associated modal would sometimes not render, making these action buttons appear to have no effect. Intrigued, I opened Sentry and used [Issue Search](https://docs.sentry.io/concepts/search/) to find relevant issues. Since this issue was happening intermittently, the most useful search parameter was our custom tag for integrations, `integration_id`. 
+
+I quickly found a relevant issue. It was a `SlackAPIError` that was showing up intermittently. I noticed that sometimes when we send Slack a request to render a modal, Slack servers respond with `expired_trigger_id` error codes. 
+
+![A screenshot of a Sentry Issue Details page for a `SlackAPIError`. It highlights the response `expired_trigger_id`.](~/assets/content/debugging-sentry-slack-integration/sentry-issue.png)
+
+Before I dove into the Trace View, I familiarized myself with the Slack documentation[^1] for their responses. I quickly realized what the likely root cause was: we were likely not sending the payload to render a modal to Slack fast enough. Slack expects integrations to respond within 3 seconds:
+
+[^1]: [Slack's documentation for interactive components](https://api.slack.com/interactivity/handling#acknowledgment_response)
+
+> [Y]our app must reply to the HTTP POST request with an HTTP 200 OK response. This must be sent within 3 seconds of receiving the payload. If your app doesn't do that, the Slack user who interacted with the app will see an error message, so ensure your app responds quickly.
+
+This expectation seemed reasonable, and if my hypothesis that this was the root cause was correct, then why weren't we responding in time?
+
+## Debugging performance issues that caused a poor user experience 
+
+Since I had the likely error causing this issue, I decided this would be a great use of [Sentry's Trace View](https://docs.sentry.io/concepts/key-terms/tracing/trace-view/). I found a sample trace where the response time was the worst. Since we add spans whenever we're working with an external service, like Slack, I was able to better track down the likely source of why it was taking us **more than 4 seconds to complete the user's request.**
+
+![A screenshot of the Sentry Trace View showing the `extensions/slack/action`  endpoint taking the most time, and the `convert_to_async_slack_response` originating in a celery task.](~/assets/content/debugging-sentry-slack-integration/trace-view.png)
+
+I decided `convert_to_async_slack_response` and API endpoint `extensions/slack/action`  would serve as a good starting point to start investigating the code, since that span was  where the Trace View identified the performance slowdown. 
+
+I noticed that `convert_to_async_slack_response` was a celery task, and I knew that Sentry uses this [celery task](https://docs.celeryq.dev/en/stable/index.html) to send requests from the *control silo* where all request originate to the *region silo* where Sentry would build the response to send to Slack using relevant error details and send it over. 
+
+
+<Callout title="Multi region architecture" type="info">
+    We split our customer's data in different “silos” to provide our customers data residency.
+
+    ![A diagram of the US Region, EU Region, and Control Silos that are used by Sentry's Frontend UI to ensure customer data resides in the region they have specified.
+    ](~/assets/content/debugging-sentry-slack-integration/multi-region-architecture.png)
+</Callout>
+
+This task is asynchronous, so we couldn't guarantee when the task would trigger our response to Slack. To respond to Slack in time, we would have to respond in the *control silo*.
+
+## Fixing the Sentry-Slack Integration
+
+With a rough idea of the problem and a possible solution, I worked on figuring out where this task was being populated from. Returning to the [Trace View](https://docs.sentry.io/concepts/key-terms/tracing/trace-view/), I saw we were populating this from our `IntegrationControlMiddleware`.
+
+![A screenshot of the Sentry Trace View showing that the celery task that is causing the performance slowdown originates from `IntegrationControlMiddleware`.](~/assets/content/debugging-sentry-slack-integration/integration-control-middleware.png)
+
+With this in mind, I worked on a fix. First, I created a method to create a simple loading modal that we could send to Slack initially[^2]:
+
+[^2]: The code for this method is available [here](https://github.com/getsentry/sentry/blob/69d8111765080f0a75be6bedc71334d2e7b8ddaa/src/sentry/middleware/integrations/parsers/slack.py#L139-L169).
+
+```python
+def handle_dialog(self, request, action: str, title: str) -> None:
+    payload, action_ts = self.parse_slack_payload(request)
+
+    integration = self.get_integration_from_request()
+    if not integration:
+        raise ValueError("integration not found")
+
+    slack_client = SlackSdkClient(integration_id=integration.id)
+    loading_modal = self.build_loading_modal(action_ts, title)
+
+    try:
+        slack_client.views_open(
+            trigger_id=payload["trigger_id"],
+            view=loading_modal,
+        )
+…
+```
+
+Next, I updated our async response logic so that if the user decides to open a modal, we would send them a loading modal before we send kick off the celery task to respond to them with the more detailed modal[^3]:
+
+[^3]: The code for this method is available [here](https://github.com/getsentry/sentry/blob/69d8111765080f0a75be6bedc71334d2e7b8ddaa/src/sentry/middleware/integrations/parsers/slack.py#L188-L209).
+
+```python title="sentry/middleware/integrations/parsers/slack.py"
+try:
+    if (
+        options.get("send-slack-response-from-control-silo")
+        and self.action_option in CONTROL_RESPONSE_ACTIONS
+    ):
+        CONTROL_RESPONSE_ACTIONS[self.action_option](self.request, self.action_option)
+except ValueError:
+    logger.exception(
+        "slack.control.response.error",
+        extra={
+            "integration_id": integration and integration.id,
+            "action": self.action_option,
+        },
+    )
+
+convert_to_async_slack_response.apply_async(
+    kwargs={
+        "region_names": [r.name for r in regions],
+        "payload": create_async_request_payload(self.request),
+        "response_url": self.response_url,
+    }
+)
+```
+
+The result was an experience that looks like this: 
+
+(Note: I slowed the gif down to make the loading state more apparent.)
+
+![A gif showing someone clicking the “archive” button in a Slack notification sent from Sentry. A modal pops up with a “Loading” message, and then the contents of the modal are replaced with the archive dropdown options and the “Confirm” and “Archive” buttons.](~/assets/content/debugging-sentry-slack-integration/loading-modal.gif)
+
+## The power of debuggability in software development 
+
+And that's it! We got the PR merged and saw that the number of events for the issue dropped to 0 once the change was deployed.
+
+![A screenshot of the Sentry Issue Details page showing that the number of events for the issue dropped to 0.](~/assets/content/debugging-sentry-slack-integration/zero-events.png)
+
+Our journey through debugging this issue underscores one critical lesson above all: the immense power of debuggability in modern software development. Tools, like Sentry, allow us to:
+1. Pinpoint the exact cause of our performance bottleneck
+2. Visualize the entire request flow
+3. Quickly navigate to relevant parts of our codebase
+
+Without this level of visibility, we might have spent weeks trying to reproduce and understand the issue. Instead, we diagnosed and solved the problem efficiently, demonstrating how crucial proper instrumentation is for effective debugging.
+
+Remember, in the complex world of software development, debuggability isn't just a nice-to-have—it's a must-have. 
+
+Happy debugging, and may your traces always be insightful!
+
+
+
