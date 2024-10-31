@@ -1,11 +1,9 @@
 ---
 import Link from "@components/Link.astro";
 import { Icon } from "astro-icon/components";
-import { author, defaultMeta, navigation } from "@data/constants";
+import { author, defaultMeta, navigation, repo } from "@data/constants";
 import "@fontsource-variable/inter";
 import Callout from "@components/MDX/Callout.astro";
-
-const twitter = "exylods"; // Twitter username, even though it's privated.
 
 interface Props {
   title?: string;
@@ -36,7 +34,7 @@ const canonicalURL = new URL(Astro.url).href;
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width" />
     <title>{title}</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
     <link rel="canonical" href={canonicalURL} />
     <meta name="title" content={title} />
     <meta name="description" content={description} />
@@ -50,8 +48,6 @@ const canonicalURL = new URL(Astro.url).href;
     <meta property="og:locale" content="en_US" />
     <meta property="twitter:card" content="summary_large_image" />
     <meta property="twitter:url" content={canonicalURL} />
-    <meta name="twitter:site" content={twitter} />
-    <meta name="twitter:creator" content={twitter} />
     <meta property="twitter:title" content={title} />
     <meta property="twitter:description" content={description} />
     <meta property="twitter:image" content={ogImageURL} />
@@ -121,13 +117,7 @@ const canonicalURL = new URL(Astro.url).href;
         class="mx-auto max-w-4xl px-6 lg:px-2 text-center text-xs lg:text-sm dark:text-zinc-400 text-zinc-600"
       >
         <p>
-          &copy; {new Date().getFullYear()}
-          {author}. All rights reserved. <span
-            ><a
-              href="https://github.com/exylons/astrozinc"
-              class="hover:underline z-10">Source Code.</a
-            ></span
-          >
+          <a href={repo} class="hover:underline z-10">source code.</a>
         </p>
       </div>
     </footer>

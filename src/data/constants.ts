@@ -1,12 +1,15 @@
-export const author = "Lance Ross";
+export const author = "Raj Joshi";
+
+export const repo = "https://github.com/iamrajjoshi/blog";
+export const username = "iamrajjoshi";
 
 export const defaultMeta = {
-  title: "AstroZinc",
+  title: "raj's blog",
   description:
-    "An Astro blogging template made by @exylons using Astro, Tailwind, and MDX",
-  ogImage: {
+    "a blog about my experiences, tech, and other stuff",
+    ogImage: {
     src: "/static/banner.png",
-    alt: "Astro Zinc with Astro Logo",
+    alt: "raj's blog",
   },
 };
 

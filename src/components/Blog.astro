@@ -25,14 +25,18 @@ const fullDate = data.pubDate.toLocaleDateString("en", {
     href={`/blog/${slug}/`}
     class="relative group flex flex-col sm:flex-row gap-0.5 border-b border-spacing-y-2 border-zinc-300 dark:border-zinc-800 py-6"
   >
-    <Image
-      src={data.hero}
-      alt={data.heroAlt}
-      width={640}
-      height={480}
-      class="sm:w-[240px] sm:h-[135px] shadow-sm rounded-md sm:mr-6 hover:opacity-80 transition"
-      loading="eager"
-    />
+    {
+      data.hero && (
+        <Image
+          src={data.hero}
+          alt={data.heroAlt}
+          width={640}
+          height={480}
+          class="sm:w-[240px] sm:h-[135px] shadow-sm rounded-md sm:mr-6 hover:opacity-80 transition"
+          loading="eager"
+        />
+      )
+    }
     <div class="flex flex-col">
       <time
         datetime={data.pubDate.toISOString()}
@@ -43,7 +47,11 @@ const fullDate = data.pubDate.toLocaleDateString("en", {
         >{fullDate}
       </time>
 
-      <p class="mb-1 font-semibold dark:text-zinc-300 text-zinc-950 group-hover:text-zinc-400 dark:group-hover:text-green transition-colors">{data.title}</p>
+      <p
+        class="mb-1 font-semibold dark:text-zinc-300 text-zinc-950 group-hover:text-zinc-400 dark:group-hover:text-green transition-colors"
+      >
+        {data.title}
+      </p>
 
       {
         !minimal && (
