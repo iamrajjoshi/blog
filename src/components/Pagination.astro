@@ -1,0 +1,48 @@
+---
+import { getCollection } from "astro:content";
+import { basename } from "node:path";
+
+const posts = (await getCollection("blog")).sort(
+  (a, b) => a.data.pubDate.valueOf() - b.data.pubDate.valueOf()
+);
+
+const currentIndex = posts.findIndex((post) => {
+  return basename(Astro.url.pathname) === post.slug;
+});
+
+const nextPost = posts[currentIndex + 1];
+const prevPost = posts[currentIndex - 1];
+---
+
+<aside class="flex flex-col sm:flex-row mt-10 gap-4 w-full">
+  {
+    nextPost && (
+      <a
+        href={`/blog/${nextPost.slug}/`}
+        class="group flex-1 text-sm flex flex-col grow p-4 rounded-lg border border-zinc-300 dark:border-zinc-700 dark:hover:border-zinc-400 hover:border-zinc
+        -300 transition-all dark:hover:bg-zinc-600/20 hover:bg-zinc-100 hover:text-zinc-800 hover:border-zinc-500 hover:bg-zinc-600/20"
+      >
+        <p class="mb-1 dark:text-zinc-300 text-zinc-700">
+          &larr; Previous post
+        </p>
+        <p class="font-semibold dark:text-zinc-300 text-zinc-700">
+          {nextPost.data.title}
+        </p>
+      </a>
+    )
+  }
+  {
+    prevPost && (
+      <a
+        href={`/blog/${prevPost.slug}/`}
+        class="group flex-1 text-sm flex flex-col text-right grow p-4 rounded-lg border border-zinc-300 dark:border-zinc-700 dark:hover:border-zinc-400 hover:border-zinc
+        -300 transition-all dark:hover:bg-zinc-600/20 hover:bg-zinc-100 hover:text-zinc-800 hover:border-zinc-500 hover:bg-zinc-600/20"
+      >
+        <p class="mb-1 dark:text-zinc-300 text-zinc-700">Next post &rarr;</p>
+        <p class="font-semibold dark:text-zinc-300 text-zinc-700">
+          {prevPost.data.title}
+        </p>
+      </a>
+    )
+  }
+</aside>
