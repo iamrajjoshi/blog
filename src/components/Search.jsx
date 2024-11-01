@@ -41,7 +41,7 @@ function Search({ searchList }) {
           value={query}
           onChange={handleOnSearch}
           className="block w-full p-4 text-sm text-zinc-900 dark:text-zinc-100 rounded-lg bg-zinc-200/60 dark:bg-zinc-900 focus:outline-none shadow-sm"
-          placeholder="Search for blog posts..."
+          placeholder="search for blog posts..."
         />
       </div>
       {query.length > 1 && (

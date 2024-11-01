@@ -16,15 +16,9 @@ const description = defaultMeta.description;
 
 <Layout title={title} description={description}>
   <section class="text-center grid place-items-center">
-    <Header title="Blog" />
-    <p class="max-w-prose mb-10 font-normal leading-relaxed">
-      {description}
-    </p>
+    <Header title="all posts" />
   </section>
   <SearchBar />
-  <h2 class="mt-12 text-2xl font-semibold dark:text-zinc-100 text-zinc-900">
-    Posts
-  </h2>
   <ul class="mt-6 grid grid-cols-1">
     {posts.map((p) => <Blog {...p} />)}
   </ul>

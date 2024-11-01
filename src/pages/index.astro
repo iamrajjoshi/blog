@@ -21,7 +21,7 @@ const posts = (await getCollection("blog")).sort(
   </section>
   <section>
     <h2 class="mt-12 text-2xl font-semibold dark:text-zinc-100 text-zinc-900">
-      Recent Posts
+      recent posts
     </h2>
     <ul class="mt-6 grid grid-cols-1">
       {posts.slice(0, 3).map((post) => <Blog {...post} />)}

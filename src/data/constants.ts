@@ -16,14 +16,14 @@ export const defaultMeta = {
 export const navigation = [
   {
     href: "/",
-    text: "Home",
+    text: "home",
   },
   {
     href: "/blog/",
-    text: "Blog",
+    text: "blog",
   },
   {
     href: "/rss.xml",
-    text: "RSS",
+    text: "rss",
   },
 ];
