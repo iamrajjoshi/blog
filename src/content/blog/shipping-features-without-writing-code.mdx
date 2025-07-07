@@ -25,17 +25,17 @@ Fast forward to a few weeks ago - when Sentry got access to Cursor's background 
 
 Here's where it gets interesting. Frankly, I was a bit skeptical and didn't think it would really do much. I didn't overthink it. No elaborate prompt engineering, no detailed specifications. I just told the background agent:
 
-![Original Prompt](/images/shipping-features-without-writing-code/original-prompt.png)
+![Original Prompt](~/assets/content/shipping-features-without-writing-code/original-prompt.png)
 
 That's it. Two sentences and a link to a PR I had landed over a year ago.
 
 The agent picked up the files it needed to change, understood the pattern from the existing Ruby implementation, and actually made reasonable changes. It added a new `CSharpParser` class, implemented the regex patterns for C# method signatures, and even added tests.
 
-![Initial Agent Response](/images/shipping-features-without-writing-code/initial-agent-response.png)
+![Initial Agent Response](~/assets/content/shipping-features-without-writing-code/initial-agent-response.png)
 
 But I wasn't done yet. I wanted to see how far I could push it, so I asked it to add a feature flag to control the rollout. Again, minimal prompting—and it delivered. The agent understood the existing feature flag patterns in the codebase and implemented everything correctly.
 
-![Followup Prompt](/images/shipping-features-without-writing-code/followup.png)
+![Followup Prompt](~/assets/content/shipping-features-without-writing-code/followup.png)
 
 ## It works!
 
@@ -45,7 +45,7 @@ The whole experience was surprisingly smooth. I went from knowing zero C# to hav
 
 I was honestly amazed and excited!
 
-![Final Agent Response](/images/shipping-features-without-writing-code/result.png)
+![Final Agent Response](~/assets/content/shipping-features-without-writing-code/result.png)
 
 ## Where Background Agents Actually Shine
 
