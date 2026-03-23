@@ -20,14 +20,14 @@ const posts = (await getCollection("blog")).sort(
     </div>
   </section>
   <section>
-    <h2 class="mt-12 text-2xl font-semibold dark:text-zinc-100 text-zinc-900">
+    <h2 class="mt-12 text-2xl font-semibold text-zinc-100 font-heading">
       recent posts
     </h2>
     <ul class="mt-6 grid grid-cols-1">
       {posts.slice(0, 3).map((post) => <Blog {...post} />)}
     </ul>
     <a
-      class="inline-block mt-7 dark:hover:text-zinc-50 hover:text-zinc-400 transition-colors"
+      class="inline-block mt-7 hover:text-zinc-50 transition-colors slide-underline"
       href="/blog/">View all posts &rarr;</a
     >
   </section>

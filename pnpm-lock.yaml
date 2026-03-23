@@ -11,6 +11,9 @@ importers:
       '@astrojs/react':
         specifier: ^3.6.0
         version: 3.6.0(@types/react-dom@18.3.0)(@types/react@18.3.3)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(vite@5.3.2(@types/node@20.14.9)(lightningcss@1.25.1)(terser@5.31.1))
+      '@fontsource/poppins':
+        specifier: ^5.2.7
+        version: 5.2.7
       '@types/react':
         specifier: ^18.3.3
         version: 18.3.3
@@ -471,6 +474,9 @@ packages:
 
   '@fontsource/inter@5.0.18':
     resolution: {integrity: sha512-YCsoYPTcs713sI7tLtxaPrIhXAXvEetGg5Ry02ivA8qUOb3fQHojbK/X9HLD5OOKvFUNR2Ynkwb1kR1hVKQHpw==}
+
+  '@fontsource/poppins@5.2.7':
+    resolution: {integrity: sha512-6uQyPmseo4FgI97WIhA4yWRlNaoLk4vSDK/PyRwdqqZb5zAEuc+Kunt8JTMcsHYUEGYBtN15SNkMajMdqUSUmg==}
 
   '@humanwhocodes/config-array@0.11.14':
     resolution: {integrity: sha512-3T8LkOmg45BV5FICb15QQMsyUSWrQ8AygVfC7ZG32zOalnqrilm018ZVCw0eapXux8FtA33q8PSRSstjee3jSg==}
@@ -3648,6 +3654,8 @@ snapshots:
   '@fontsource-variable/inter@5.0.18': {}
 
   '@fontsource/inter@5.0.18': {}
+
+  '@fontsource/poppins@5.2.7': {}
 
   '@humanwhocodes/config-array@0.11.14':
     dependencies:

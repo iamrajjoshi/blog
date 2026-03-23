@@ -1,8 +1,9 @@
 ---
 import Link from "@components/Link.astro";
-import { Icon } from "astro-icon/components";
 import { author, defaultMeta, navigation, repo } from "@data/constants";
 import "@fontsource-variable/inter";
+import "@fontsource/poppins/600.css";
+import "@fontsource/poppins/700.css";
 import Callout from "@components/MDX/Callout.astro";
 
 interface Props {
@@ -29,7 +30,7 @@ const canonicalURL = new URL(Astro.url).href;
 ---
 
 <!doctype html>
-<html lang="en-US" class="dark:[color-scheme:dark] scroll-smooth">
+<html lang="en-US" class="dark [color-scheme:dark] scroll-smooth">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width" />
@@ -38,6 +39,7 @@ const canonicalURL = new URL(Astro.url).href;
     <link rel="canonical" href={canonicalURL} />
     <meta name="title" content={title} />
     <meta name="description" content={description} />
+    <meta name="theme-color" content="#0a0a0f" />
     <meta property="og:type" content="website" />
     <meta property="og:url" content={canonicalURL} />
     <meta property="og:title" content={title} />
@@ -64,11 +66,11 @@ const canonicalURL = new URL(Astro.url).href;
     }
   </head>
   <body
-    class="dark:bg-zinc-950 bg-zinc-50 antialiased selection:bg-zinc-700 selection:text-zinc-100 dark:selection:bg-zinc-500 dark:selection:text-white pt-10 2xl:text-lg"
+    class="bg-[#0a0a0f] antialiased selection:bg-teal-500/25 selection:text-white pt-10 2xl:text-lg"
   >
     <a
       href="#main-content"
-      class="absolute opacity-0 focus:opacity-100 border-transparent border-y border-r text-xs lg:text-sm px-4 py-1.5 lg:py-2 top-1 lg:top-[41px] transition-transform duration-300 rounded-r-full bg-zinc-300 dark:bg-zinc-800 font-medium text-zinc-800 dark:text-zinc-200 -translate-x-full focus:translate-x-0 focus:ring"
+      class="absolute opacity-0 focus:opacity-100 border-transparent border-y border-r text-xs lg:text-sm px-4 py-1.5 lg:py-2 top-1 lg:top-[41px] transition-transform duration-300 rounded-r-full bg-zinc-800 font-medium text-zinc-200 -translate-x-full focus:translate-x-0 focus:ring"
       >Skip to main content</a
     >
     <nav
@@ -87,17 +89,9 @@ const canonicalURL = new URL(Astro.url).href;
           ))
         }
       </ul>
-      <button
-        id="dark-mode-toggle"
-        class="dark:text-zinc-100 text-zinc-900 dark:hover:text-zinc-300 hover:text-zinc-600 my-2.5"
-        aria-label="Toggle theme mode"
-      >
-        <Icon name="moon" class="w-6 h-6 sun-icon" />
-        <Icon name="sun" class="w-6 h-6 moon-icon" />
-      </button>
     </nav>
     <main
-      class="px-6 lg:px-2 mx-auto dark:text-zinc-400 text-zinc-600"
+      class="px-6 lg:px-2 mx-auto text-zinc-400"
       id="main-content"
       class:list={{
         "max-w-4xl": wide,
@@ -107,76 +101,72 @@ const canonicalURL = new URL(Astro.url).href;
       <noscript>
         <Callout type="error" title="NOTICE">
           Some features on this website won't work without JavaScript such as
-          theme toggle, search bar, and copy article.
+          search bar and copy article.
         </Callout>
       </noscript>
       <slot />
     </main>
     <footer class="mt-12 pb-12">
       <div
-        class="mx-auto max-w-4xl px-6 lg:px-2 text-center text-xs lg:text-sm dark:text-zinc-400 text-zinc-600"
+        class="mx-auto max-w-4xl px-6 lg:px-2 text-center text-xs lg:text-sm text-zinc-400"
       >
         <p>
-          <a href={repo} class="hover:underline z-10">source code.</a>
+          <a href={repo} class="slide-underline z-10">source code.</a>
         </p>
       </div>
     </footer>
   </body>
 </html>
 
-<script is:inline async>
-  const darkModeToggle = document.getElementById("dark-mode-toggle");
-  const darkClass = "dark";
-  const htmlTag = document.querySelector("html");
-
-  function applyDarkMode(isDark) {
-    htmlTag.classList.toggle(darkClass, isDark);
-    htmlTag.setAttribute("data-theme", isDark ? "min-dark" : "min-light");
-    const sunIcon = document.querySelector(".sun-icon");
-    const moonIcon = document.querySelector(".moon-icon");
-    sunIcon.classList.toggle("hidden", isDark);
-    moonIcon.classList.toggle("hidden", !isDark);
+<style is:global>
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    background:
+      radial-gradient(ellipse 80% 50% at 50% -20%, rgba(94, 234, 212, 0.04) 0%, transparent 60%);
+    pointer-events: none;
   }
 
-  function getCookie(name) {
-    const value = `; `;
-    const parts = document.cookie.split(value);
-    for (let i = 0; i < parts.length; i++) {
-      const part = parts[i].split("=");
-      if (part[0].trim() === name) {
-        return part[1];
-      }
-    }
-    return null;
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    opacity: 0.025;
+    pointer-events: none;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+    background-size: 256px 256px;
   }
 
-  function setCookie(name, value, expirationDays) {
-    const date = new Date();
-    date.setTime(date.getTime() + expirationDays * 24 * 60 * 60 * 1000);
-    const expires = `expires=${date.toUTCString()}`;
-    document.cookie = `${name}=${value}; ${expires}; path=/`;
-  }
-
-  const isDarkMode = getCookie("darkMode") === "true";
-  applyDarkMode(isDarkMode);
-
-  darkModeToggle.addEventListener("click", () => {
-    const isDark = htmlTag.classList.contains(darkClass);
-    applyDarkMode(!isDark);
-    setCookie("darkMode", !isDark, 30);
-  });
-</script>
-
-<style>
   body::-webkit-scrollbar {
     width: 8px;
   }
 
   body::-webkit-scrollbar-thumb {
-    @apply bg-zinc-400;
+    @apply bg-zinc-800;
   }
 
-  .dark body::-webkit-scrollbar-thumb {
-    @apply bg-zinc-800;
+  /* Sliding underline on hover */
+  .slide-underline {
+    position: relative;
+    text-decoration: none;
+  }
+
+  .slide-underline::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    width: 0;
+    height: 1px;
+    background: currentColor;
+    transition: width 0.25s ease;
+  }
+
+  .slide-underline:hover::after {
+    width: 100%;
   }
 </style>

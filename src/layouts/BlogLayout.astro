@@ -66,14 +66,14 @@ const fullUpdatedDate = updatedDate?.toLocaleDateString("en", {
       </span>
     </time>
     <h1
-      class="text-2xl sm:text-4xl pb-8 font-bold dark:text-zinc-100 text-zinc-950"
+      class="text-2xl sm:text-4xl pb-8 font-bold text-zinc-100 font-heading"
     >
       {title}
     </h1>
-    <p class="dark:text-zinc-400 text-zinc-700 text-sm">
+    <p class="text-zinc-400 text-sm">
       <span class="block font-semibold">{author}</span>
       <a
-        class="dark:text-zinc-50 text-zinc-00 hover:underline block"
+        class="text-zinc-50 slide-underline block"
         href={`https://github.com/${username}`}
         target="_blank"
         rel="noopener noreferrer"
@@ -95,14 +95,14 @@ const fullUpdatedDate = updatedDate?.toLocaleDateString("en", {
   </header>
   {
     updatedDate && (
-      <article class="dark:text-zinc-200 text-zinc-800 py-2 px-4 mb-6 rounded-md text-sm sm:text-base border border-zinc-500 bg-zinc-600/20">
+      <article class="text-zinc-200 py-2 px-4 mb-6 rounded-md text-sm sm:text-base border border-zinc-500 bg-zinc-600/20">
         <span class="font-semibold">Last updated: </span>
         {fullUpdatedDate}
       </article>
     )
   }
   <article
-    class="prose max-w-none dark:prose-invert dark:prose-code:text-zinc-300 dark:prose-a:text-zinc-300 prose-a:text-zinc-600 prose-a:underline prose-a:decoration-zinc-500 hover:prose-a:decoration-zinc-300 prose-a:underline-offset-4 dark:prose-headings:text-zinc-100 prose-img:rounded-lg"
+    class="prose max-w-none prose-invert prose-code:text-zinc-300 prose-a:text-zinc-300 prose-a:underline prose-a:decoration-zinc-500 hover:prose-a:decoration-zinc-300 prose-a:underline-offset-4 prose-headings:text-zinc-100 prose-headings:font-heading prose-img:rounded-lg"
   >
     <slot />
     <hr />
@@ -111,7 +111,7 @@ const fullUpdatedDate = updatedDate?.toLocaleDateString("en", {
     <li title="Copy the link of this article">
       <button
         id="copy"
-        class="dark:hover:text-zinc-50 hover:text-zinc-950 transition-colors flex flex-row items-center"
+        class="hover:text-zinc-50 transition-all flex flex-row items-center hover:-translate-y-px"
       >
         <Icon name="share" size={16} class="mr-1" />
         Share this article</button
@@ -120,7 +120,7 @@ const fullUpdatedDate = updatedDate?.toLocaleDateString("en", {
     <li>
       <a
         href={`${githubUrl}${Astro.url.pathname.slice(0, -1)}.mdx`}
-        class="dark:hover:text-zinc-50 hover:text-zinc-950 transition-colors flex flex-row sm:justify-start sm:flex-row-reverse items-center"
+        class="hover:text-zinc-50 transition-all flex flex-row sm:justify-start sm:flex-row-reverse items-center hover:-translate-y-px"
         ><Icon name="edit" size={16} class="sm:ml-1 max-sm:mr-1" />Typo? Edit it
         here</a
       >
