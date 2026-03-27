@@ -17,6 +17,8 @@ I went with Go because it's a language I love but don't get to use at work. It's
 
 [^8]: The [Kubernetes CLI](https://github.com/kubernetes/kubectl), Docker, and Terraform are all written in Go.
 
+If you can't wait, here is the [code](https://github.com/iamrajjoshi/willow).
+
 ## Keeping it thin
 
 I decided early on to try to minimize the number of dependencies. Go has options like [go-git](https://github.com/go-git/go-git), but I didn't want to pull in a big dependency just to run git commands. So all of Willow's git operations go through one struct:
