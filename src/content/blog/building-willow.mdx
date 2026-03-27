@@ -1,0 +1,265 @@
+---
+title: "Building Willow: A Git Worktree Manager in Go"
+description: "How I built Willow, a CLI for managing git worktrees with embedded fzf, tmux integration, and two dependencies."
+pubDate: 2026-03-26
+updatedDate: 2026-03-26
+---
+
+## Why I built it
+
+I used to use [git-machete](https://github.com/VirtusLab/git-machete) every day after an engineer introduced it to me at my previous job. It's a CLI that adds branch management on top of git. It doesn't try to replace git, but just makes the daily PR juggling I do faster. After I started to use Claude Code a lot more and multiple agents working on different things became common, I wanted that for worktrees.
+
+Git worktrees have been around since 2015[^1], but they've recently gotten a lot of attention. AI coding agents need isolated workspaces, and worktrees give you exactly that without cloning the entire repo multiple times. Before Willow, I was already using worktrees manually, but the git commands are tedious: `git worktree add`, `git worktree remove`, remembering paths, setting up remote tracking. What I wanted was something like git-machete but for worktrees: a thin wrapper that makes the daily stuff faster without locking me out of git. So I started building one.
+
+[^1]: Git worktrees were introduced in [Git 2.5](https://github.blog/open-source/git/git-2-5-including-multiple-worktrees-and-triangular-workflows/) (July 2015).
+
+I went with Go because it's a language I love but don't get to use at work. It's also practical for CLIs: single binary, no runtime, easy cross-compilation. A lot of popular CLIs are written Go, like kubectl[^8].
+
+[^8]: The [Kubernetes CLI](https://github.com/kubernetes/kubectl), Docker, and Terraform are all written in Go.
+
+## Keeping it thin
+
+I decided early on to try to minimize the number of dependencies. Go has options like [go-git](https://github.com/go-git/go-git), but I didn't want to pull in a big dependency just to run git commands. So all of Willow's git operations go through one struct:
+
+```go
+type Git struct {
+    Dir     string
+    Verbose bool
+}
+
+func (g *Git) Run(args ...string) (string, error) {
+    cmd := exec.Command("git", args...)
+    if g.Dir != "" {
+        cmd.Dir = g.Dir
+    }
+    out, err := cmd.CombinedOutput()
+    if err != nil {
+        return "", fmt.Errorf("git %s: %w\n%s", strings.Join(args, " "), err, out)
+    }
+    return strings.TrimSpace(string(out)), nil
+}
+```
+
+Every method on the `Git` struct (`BareRepoDir`, `WorktreeRoot`, `DefaultBranch`, `IsDirty`, `HasUnpushedCommits`) is just a different git invocation. It always behaves the same as whatever git you have installed.
+
+The entire tool has 2 direct dependencies:
+
+```
+require (
+    github.com/junegunn/fzf v0.70.0
+    github.com/urfave/cli/v3 v3.6.2
+)
+```
+
+The one other dependency worth mentioning is [Sentry](https://sentry.io) which adds telemetry to the CLI. I used to work there and I might be biased, but it seriously is the easiest and fastest way to monitor anything. Every command gets a transaction with timing and whether it was a user error or a system error. It doesn't send anything identifying (just a hashed hostname and the command name) and you can opt out with an env var. Having this set up has already helped me catch bugs and make improvements.
+
+## Embedding fzf
+
+A lot of CLIs shell out to the fzf binary and pipe stdin/stdout, but I decided to import fzf as a Go library instead, so users don't need fzf installed separately.
+
+The catch is that fzf's library API uses Go channels[^2] for I/O. You feed items into an input channel and read results from an output channel. But `fzflib.Run` blocks until the user picks something, and if nothing is draining the output channel while that happens, you deadlock. To go around this, I had to spin up a goroutine to drain concurrently:
+
+[^2]: A send on a full buffered channel blocks until there's room, which causes the deadlock here. See the [Go Tour on channels](https://go.dev/tour/concurrency/2).
+
+```go
+func runFzf(lines []string, extraArgs []string, cfg *config) ([]string, int, error) {
+    args := append(extraArgs, buildArgs(cfg)...)
+
+    opts, err := fzflib.ParseOptions(true, args)
+    if err != nil {
+        return nil, 0, fmt.Errorf("fzf: %w", err)
+    }
+
+    inputChan := make(chan string, len(lines))
+    for _, line := range lines {
+        inputChan <- line
+    }
+    close(inputChan)
+    opts.Input = inputChan
+
+    outputChan := make(chan string, 128)
+    opts.Output = outputChan
+
+    // Drain output channel concurrently to prevent deadlock
+    var results []string
+    done := make(chan struct{})
+    go func() {
+        for s := range outputChan {
+            results = append(results, s)
+        }
+        close(done)
+    }()
+
+    code, err := fzflib.Run(opts)
+    close(outputChan)
+    <-done
+
+    return results, code, err
+}
+```
+
+I built a `RunExpect` wrapper on top of this that also tells you which key was pressed and what the user typed in the query. The tmux picker uses this so Enter, Ctrl-N, and Ctrl-D all do different things from the same fzf prompt.
+
+## Stacked branches
+
+My daily workflow often involves stacked PRs. If you work with stacked PRs, you know the pain. Rebase the first branch, then the second onto the first, then the third onto the second. Miss one and the diffs get tangled. I wanted Willow to track these relationships and rebase the whole stack in one command.
+
+The thing that makes this work so well with worktrees is that every branch in the stack is checked out at the same time. With normal git you're stuck on one branch, constantly stashing and switching back and forth. With worktrees each branch lives in its own directory. I'll have `feature-a`, `feature-b`, and `feature-c` all open in separate terminals and can review the diff on one while still writing code in another.
+
+The data model is just a map stored as `branches.json` in the bare repo directory:
+
+```go
+type Stack struct {
+    Parents map[string]string `json:"parents"` // branch → parent
+}
+```
+
+When you create a worktree with a base, Willow records the relationship. So building a stack looks like:
+
+```bash
+wwn feature-a                # create worktree, cd into it
+# ... do some work ...
+wwn feature-b -b feature-a   # stack on top of feature-a
+# ... do some work ...
+wwn feature-c -b feature-b   # stack on top of feature-b
+```
+
+Now all three branches are checked out at once in their own directories. `ww ls` shows the tree:
+
+```
+feature-a       ✔ +3/-1
+├─ feature-b    ✔ +12/-4
+   └─ feature-c ✔ +7/-2
+```
+
+If you delete a branch in the middle of a stack, its children get re-parented to its parent:
+
+```go
+func (s *Stack) Remove(branch string) {
+    parent := s.Parents[branch]
+    for child, p := range s.Parents {
+        if p == branch {
+            if parent != "" {
+                s.Parents[child] = parent
+            } else {
+                delete(s.Parents, child)
+            }
+        }
+    }
+    delete(s.Parents, branch)
+}
+```
+
+`ww sync` rebases the entire stack in one pass. It topologically sorts the branches so parents are always rebased before children, then walks the list:
+
+
+```go
+// Resolve rebase target: tracked parent → local branch, untracked → origin/<parent>
+rebaseOnto := parent
+if !st.IsTracked(parent) {
+    rebaseOnto = "origin/" + parent
+}
+```
+
+If a parent is tracked in the stack, the child rebases onto the local branch. If the parent is untracked (like `main`), it rebases onto `origin/main` to pick up remote changes. If a branch hits a conflict, its descendants get skipped and you get a message telling you where to go fix it. After that, `ww sync` again picks up where it left off.
+
+I can point an agent at `feature-a`, keep working on `feature-c` myself, and when `feature-a` lands and gets merged, `ww sync` rebases the whole stack in one shot.
+
+## Things I learned along the way
+
+
+**Deleting a worktree is slow.** A big worktree can have hundreds of thousands of files. `os.RemoveAll` takes too long, So instead Willow renames to a trash directory which is instant and then it kicks off `rm -rf` in a background process:
+
+```go
+trashDest := filepath.Join(trashDir, fmt.Sprintf("%d-%s", time.Now().UnixNano(), filepath.Base(wt.Path)))
+if err := os.Rename(wt.Path, trashDest); err != nil {
+    if removeErr := os.RemoveAll(wt.Path); removeErr != nil {
+        return fmt.Errorf("failed to remove worktree: %w", removeErr)
+    }
+} else {
+    bgRm := exec.Command("rm", "-rf", trashDest)
+    bgRm.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+    _ = bgRm.Start()
+}
+```
+
+`Setpgid: true` puts the rm process in its own process group so it survives after the Willow process exits[^5]. You see "Removed worktree" instantly and the actual deletion happens in the background.
+
+[^5]: By default, child processes belong to the parent's process group and receive the same signals. [`Setpgid`](https://pkg.go.dev/syscall#SysProcAttr) creates a new process group so the background `rm` keeps running.
+
+**Bare repo post-checkout hooks don't fire.** This one was frustrating. Git resolves `core.hooksPath` relative to the bare repo directory, where the hook files don't exist. So when you create a worktree from a bare repo, the post-checkout hook just silently doesn't run. I had to invoke it manually with the null-ref convention[^6] to signal a fresh checkout:
+
+[^6]: The three arguments follow git's [post-checkout hook spec](https://git-scm.com/docs/githooks#_post_checkout): previous HEAD, new HEAD, and a flag (`1` for branch checkout). The 40-character null SHA signals there was no previous HEAD.
+
+```go
+func runPostCheckoutHook(hookPath, wtPath string, u *ui.UI) {
+    if hookPath == "" {
+        return
+    }
+
+    hookFile := filepath.Join(wtPath, hookPath)
+    if _, err := os.Stat(hookFile); err != nil {
+        return
+    }
+
+    wtGit := &git.Git{Dir: wtPath}
+    head, err := wtGit.Run("rev-parse", "HEAD")
+    if err != nil {
+        return
+    }
+
+    nullRef := "0000000000000000000000000000000000000000"
+    cmd := exec.Command(hookFile, nullRef, head, "1")
+    cmd.Dir = wtPath
+    cmd.Stdout = os.Stdout
+    cmd.Stderr = os.Stderr
+    cmd.Run()
+}
+```
+
+## Building it with AI
+
+I built almost all of Willow with Claude Code. Not as an experiment, it was just the fastest way to build side projects after work. 
+
+I'd describe what I wanted at the level of "add a `--cd` flag that suppresses UI output and prints the worktree path," and Claude would produce working Go. The fzf embedding, the tmux integration, all of it.
+
+The stuff I had to do myself was the architecture. How the config system should work, how worktrees map to tmux sessions, etc. I'd think through the design, sometimes sketch it out in a markdown file, and only then hand it off to Claude to implement.
+
+I've [written before](/blog/shipping-features-without-writing-code) about when agents actually work well. Willow was the same story.
+
+## How I actually use it
+
+After being inspired by yet another coworker (this time at my current job), I integrated tmux into my workflow. This is actually one of the main reasons I added tmux support to the CLI.
+
+`ww clone <repo>` sets up a bare repo under `~/.willow/repos/`. `wwn feature-x` creates a worktree and cd's into it. Most of my time, though, I'm in the tmux picker.
+
+`ww tmux pick` opens an fzf popup inside tmux which I binded to prefix+w in my tmux config.
+
+It shows all worktrees across repos sorted by agent status (busy ones first). There's a preview pane on the right that shows what's happening in that worktree's tmux pane, plus the branch, diff stats, and last commit.
+
+Enter switches to that session (or creates one if it doesn't exist). Ctrl-N creates a new worktree from whatever you typed in the query. Ctrl-D deletes the highlighted worktree and kills its tmux session. After Ctrl-N or Ctrl-D, the picker loops back so you can keep going. This all works because of the `RunExpect` wrapper I mentioned earlier.
+
+**Sessions and layout.** When you switch to a worktree that doesn't have a tmux session yet, Willow creates one. You can configure the layout with split commands and init commands that get sent to every pane:
+
+```json
+{
+  "tmux": {
+    "layout": ["split-window -h"],
+    "postWorktreeCreate": ["eval \"$(willow shell-init)\""]
+  }
+}
+```
+
+Willow injects the session target and working directory into each layout command automatically.
+
+---
+
+Fair warning: I'm still adding stuff and changing things daily, so it's pretty alpha. But it's what I use every day and it works for me.
+
+If you want to try it:
+
+```bash
+brew install iamrajjoshi/tap/willow
+```
+
+The source is at [github.com/iamrajjoshi/willow](https://github.com/iamrajjoshi/willow).
