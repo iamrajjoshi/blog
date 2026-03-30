@@ -1,6 +1,6 @@
 ---
 import Layout from "@layouts/Layout.astro";
-import Header from "@components/Header.astro";
+import TextScramble from "@components/TextScramble";
 import { getCollection } from "astro:content";
 import { defaultMeta } from "@data/constants";
 import Blog from "@components/Blog.astro";
@@ -13,7 +13,13 @@ const posts = (await getCollection("blog")).sort(
 <Layout>
   <section class="text-center">
     <div class="grid place-items-center">
-      <Header title={defaultMeta.title} />
+      <TextScramble
+        text={defaultMeta.title}
+        as="h1"
+        className="mb-6 text-zinc-100 text-3xl font-bold tracking-tight sm:text-4xl text-center font-heading"
+        duration={800}
+        client:load
+      />
       <p class="mt-3 max-w-prose leading-relaxed">
         {defaultMeta.description}
       </p>

@@ -154,3 +154,62 @@ const fullUpdatedDate = updatedDate?.toLocaleDateString("en", {
     background: "#00000095",
   });
 </script>
+<script>
+  const SCRAMBLE_CHARS = ".:'-~+=*!?|/\\<>{}#@&";
+  const INTERVAL = 40;
+
+  function scrambleHeading(el: HTMLElement) {
+    const original = el.textContent || "";
+    if (!original.trim()) return;
+
+    const chars = Array.from(original);
+    const display = [...chars];
+    const resolved = chars.map((c) => c === " ");
+    const duration = 600;
+    const start = performance.now();
+
+    // Show scrambled immediately
+    for (let i = 0; i < display.length; i++) {
+      if (!resolved[i]) display[i] = SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
+    }
+    el.textContent = display.join("");
+
+    const timer = setInterval(() => {
+      const elapsed = performance.now() - start;
+      let allDone = true;
+
+      for (let i = 0; i < chars.length; i++) {
+        if (resolved[i]) continue;
+        const resolveAt = (i / chars.length) * duration;
+        if (elapsed >= resolveAt) {
+          display[i] = chars[i];
+          resolved[i] = true;
+        } else {
+          display[i] = SCRAMBLE_CHARS[Math.floor(Math.random() * SCRAMBLE_CHARS.length)];
+          allDone = false;
+        }
+      }
+
+      el.textContent = display.join("");
+
+      if (allDone) clearInterval(timer);
+    }, INTERVAL);
+  }
+
+  // Scramble h2/h3 headings when they scroll into view
+  if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const headings = document.querySelectorAll("article h2, article h3");
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            scrambleHeading(entry.target as HTMLElement);
+            observer.unobserve(entry.target);
+          }
+        }
+      },
+      { threshold: 0.5 },
+    );
+    headings.forEach((h) => observer.observe(h));
+  }
+</script>
