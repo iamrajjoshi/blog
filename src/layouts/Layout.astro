@@ -1,5 +1,6 @@
 ---
 import Link from "@components/Link.astro";
+import AsciiBackground from "@components/AsciiBackground";
 import { author, defaultMeta, navigation, repo } from "@data/constants";
 import "@fontsource-variable/inter";
 import "@fontsource/poppins/600.css";
@@ -68,6 +69,7 @@ const canonicalURL = new URL(Astro.url).href;
   <body
     class="bg-[#0a0a0f] antialiased selection:bg-teal-500/25 selection:text-white pt-10 2xl:text-lg"
   >
+    <AsciiBackground client:load />
     <a
       href="#main-content"
       class="absolute opacity-0 focus:opacity-100 border-transparent border-y border-r text-xs lg:text-sm px-4 py-1.5 lg:py-2 top-1 lg:top-[41px] transition-transform duration-300 rounded-r-full bg-zinc-800 font-medium text-zinc-200 -translate-x-full focus:translate-x-0 focus:ring"
