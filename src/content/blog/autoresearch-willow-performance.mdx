@@ -1,0 +1,305 @@
+---
+title: "Making Willow Faster with Autoresearch"
+description: "How I used autoresearch to turn vague Willow latency complaints into benchmark-backed CLI performance fixes."
+pubDate: 2026-05-29
+updatedDate: 2026-05-29
+---
+
+I built Willow because I wanted git worktrees to feel less annoying. Then people at Zip started using it. Side projects change the second someone else depends on them; suddenly your weird local setup has users, and users can complain.
+
+The first complaints were not dramatic. Someone would run `ww ls` or open the tmux picker and say it felt a beat slower than it should. The command still worked. The pause was just long enough to notice, which for a CLI is already too long.
+
+For a CLI, that matters. `ww ls`, `ww status`, and `ww tmux list` are the kinds of commands you run without thinking. If they pause for long enough that you notice them, the tool starts to get in your way.
+
+I had also been playing with autoresearch, which is a workflow for forcing agent changes through a benchmark loop before they count. `willow-autoresearch` is the Willow-specific version of that idea. It knows how to run Willow's benchmark script, collect traces, compare results, and decide whether a change is worth keeping.
+
+So I tried it on Willow.
+
+## The experiment
+
+The core loop was simple:
+
+1. Run a real baseline.
+2. Look at the trace hotspots.
+3. Make one focused change.
+4. Run the test suite.
+5. Run the exact same benchmark again.
+6. Keep the change only if the benchmark accepts it.
+
+The benchmark command looked like this:
+
+```bash
+WILLOW_TELEMETRY=off python3 skills/willow-autoresearch/scripts/bench_willow.py \
+  --reference-repo <reference-fixture> \
+  --runs 7 \
+  --warmups 2 \
+  --json
+```
+
+I turned telemetry off because I wanted to measure the local CLI path, not Sentry startup or network behavior. The reference fixture was a Willow-managed repo that looked like my real day-to-day setup: multiple worktrees, active branches, enough metadata to make `ls`, `status`, and the tmux picker do actual work.
+
+I set one rule up front: I would not ask the agent to "make Willow faster" and then trust whatever came back. The skill had to prove each change against the same command. If `go test ./... -count=1` failed, the change was dead. If the benchmark said the result was noise or a regression, the change was dead.
+
+At that point the setup started to feel like a lab notebook: hypothesis, patch, measurement, keep or revert.
+
+## The first trace
+
+The first accepted baseline came back at:
+
+```txt
+total_median_ms = 158.489ms
+```
+
+A web request can hide 158 milliseconds. A shell command you run all day cannot. If a command is in your muscle memory, 100 milliseconds is enough to feel wrong.
+
+The trace was more interesting than the total:
+
+| Hotspot | Scenario | Median |
+| --- | --- | ---: |
+| `BuildPickerItems` | `tmux-list` | `40.0ms` |
+| `tmux.list` | `tmux-list` | `40.0ms` |
+| `cli.ls` | `ls-table` | `26.8ms` |
+| `cli.status` | `status-json` | `16.6ms` |
+| `worktree.List` | `tmux-list` | `15.7ms` |
+| `gh.CachedMergedWorktreeSet` | `ls-table` | `9.3ms` |
+
+The useful thing about this trace is how plain it is. There was no dramatic algorithm hiding in the middle of the program. Willow was mostly spending time doing local work over and over: asking git questions, reading worktree metadata, checking tmux state, resolving branch heads, looking for unread Claude sessions.
+
+Those costs are easy to ignore when you are building a CLI command by command. One subprocess here, one file read there, one status check in a loop. It all feels harmless until you run it every time the picker opens.
+
+## Stop asking git things Willow already knows
+
+In the original [Willow post](/blog/building-willow), I wrote about keeping Willow thin. Almost all git operations go through a tiny wrapper around the real `git` binary:
+
+```go
+type Git struct {
+    Dir     string
+    Verbose bool
+}
+
+func (g *Git) Run(args ...string) (string, error) {
+    cmd := exec.Command("git", args...)
+    if g.Dir != "" {
+        cmd.Dir = g.Dir
+    }
+    out, err := cmd.CombinedOutput()
+    if err != nil {
+        return "", fmt.Errorf("git %s: %w\n%s", strings.Join(args, " "), err, out)
+    }
+    return strings.TrimSpace(string(out)), nil
+}
+```
+
+I still like that design. It means Willow behaves like your installed git. It also keeps the code small.
+
+But performance work is often about finding the one place where a nice abstraction costs too much. For hot listing paths, Willow does not always need to ask git to describe the worktrees. A Willow-managed repo already has the metadata on disk.
+
+So the first big optimization was to add a fast path for listing worktrees from git metadata:
+
+```go
+func ListWithOptions(g *git.Git, opts ListOptions) ([]Worktree, error) {
+    if g.Dir != "" && !g.Verbose {
+        if worktrees, ok := listFromGitMetadata(g.Dir, opts); ok {
+            return worktrees, nil
+        }
+    }
+
+    out, err := g.Run("worktree", "list", "--porcelain")
+    if err != nil {
+        return nil, err
+    }
+    return parsePorcelain(out), nil
+}
+```
+
+The shape matters here. Willow only takes the metadata path when it has a bare Willow repo and verbose mode is off. If anything looks weird, it falls back to `git worktree list --porcelain`.
+
+A large chunk of the win came from this path, without making the debugging story worse. If I run Willow in verbose mode, I still get the git-backed path.
+
+The fast path reads the linked worktree admin dirs, parses `HEAD`, resolves branch refs, and understands detached worktrees. It also loads `packed-refs` once per listing instead of repeatedly checking it while walking branches.
+
+The `packed-refs` bit is not glamorous, but it helped. Git repos do not always keep every branch head as a loose file under `refs/heads`. Once refs are packed, a naive implementation can end up reading the same `packed-refs` file over and over. Willow now loads it once for the listing and reuses it.
+
+## Cache keys without a subprocess
+
+Another small but useful fix was in the merged-worktree cache.
+
+Willow marks worktrees as merged by checking GitHub PR state and caching the result. The cache key needs to identify the underlying git common directory. Before this change, Willow used:
+
+```bash
+git rev-parse --git-common-dir
+```
+
+Correct, yes, but it is another subprocess in a path that runs during `ww ls` and the tmux picker.
+
+The replacement follows the same pattern as the worktree listing change: read `.git` metadata first, fall back to git if that does not work.
+
+```go
+func repoCacheKey(dir string) string {
+    if key, ok := repoCacheKeyFromGitMetadata(dir); ok {
+        return key
+    }
+
+    cmd := exec.Command("git", "rev-parse", "--git-common-dir")
+    cmd.Dir = dir
+    out, err := cmd.Output()
+    if err != nil {
+        return filepath.Clean(dir)
+    }
+
+    key := strings.TrimSpace(string(out))
+    if key == "" {
+        return filepath.Clean(dir)
+    }
+    if !filepath.IsAbs(key) {
+        key = filepath.Join(dir, key)
+    }
+    return filepath.Clean(key)
+}
+```
+
+The fallback is the part I cared about most. If the metadata path cannot prove the answer, git still gets the final say.
+
+## Remove work nobody was using
+
+A few wins were even less interesting than reading metadata.
+
+The tmux picker used to build a set of tmux sessions while constructing picker items. At first glance, that seems useful because picker items have a `HasSession` field. But in the measured path, that field was not used for rendering the list. So Willow was paying for `tmux list-sessions` without needing the answer.
+
+Deleting that lookup made `ww tmux list` faster.
+
+`ww status` had a similar issue. It was resolving branch heads even though the status output only needed branch names, paths, and Claude session state. So I added an option to list worktrees without resolving heads:
+
+```go
+type ListOptions struct {
+    ResolveHeads bool
+}
+```
+
+Then `ww status` could call:
+
+```go
+wts, err := worktree.ListWithOptions(repoGit, worktree.ListOptions{ResolveHeads: false})
+```
+
+There was also a tiny unread-status fix. Willow stores a `.lastread` marker so it can show whether a DONE session has unread output. The old code checked `.lastread` even when there were no DONE sessions. The new code checks for a DONE session first:
+
+```go
+unread := hasDoneSession(sessions) && claude.CountUnreadIn(repoName, wtDir, sessions) > 0
+```
+
+I probably would not have bothered with this by hand. It is too small to feel worth a full performance pass. But inside an autoresearch loop, small safe changes are cheap to try and easy to reject.
+
+## The changes that did not make it
+
+The best part of this workflow was not that it found wins. It was that it made it easy to throw away changes.
+
+A few ideas looked reasonable and did not survive the benchmark:
+
+- skipping the bare-repo config proof for resolved Willow repos
+- caching the status root while reading sessions
+- loading only the packed refs needed by the listed worktrees
+- preallocating a few render and status slices
+
+The diffs looked like patches I might have accepted if I were only reviewing the code. But the benchmark either called them noise or measured a regression, so they got reverted.
+
+Guardrails matter here. Agents can write code that reads right. Performance code can read right and still be slower.
+
+Autoresearch helped because it made the acceptance criteria mechanical. The patch either passed tests and improved the benchmark, or it did not.
+
+## What changed
+
+After the accepted changes, the best benchmark result was:
+
+```txt
+total_median_ms = 56.168ms
+```
+
+Compared with the original `158.489ms` baseline, that is about a 64.6% reduction.
+
+The final scenario medians looked like this:
+
+| Scenario | Median |
+| --- | ---: |
+| `empty-ls` | `8.361ms` |
+| `ls-json` | `11.274ms` |
+| `ls-table` | `13.070ms` |
+| `status-json` | `10.241ms` |
+| `tmux-list` | `13.222ms` |
+
+The trace changed too:
+
+| Trace | Median |
+| --- | ---: |
+| `worktree.List` | about `2.9-3.0ms` |
+| `cli.status` | `3.0ms` |
+| `BuildPickerItems` / `tmux.list` | `4.9ms` |
+| merged-worktree cache checks | about `0.1ms` |
+
+The PR ended up being pretty small: 9 files, 514 insertions, 22 deletions. The bulk of the insertions were tests and metadata parsing code. The actual story was "stop shelling out here" and "do not do work this command does not need."
+
+If you use Willow, the commands that should feel better are:
+
+- `ww ls`
+- `ww status`
+- `ww tmux list`
+- picker-style flows like `ww sw` and `ww checkout`
+- `ww ls` from a non-Willow repo or random directory
+
+The changes shipped in [PR #166](https://github.com/iamrajjoshi/willow/pull/166) and went out in [v2.8.2](https://github.com/iamrajjoshi/willow/releases/tag/v2.8.2).
+
+```bash
+brew upgrade willow
+```
+
+## How I would use autoresearch again
+
+I would not use this workflow for every change. It is not a substitute for thinking. It is useful when you have:
+
+1. A command or code path you can run repeatedly.
+2. A fixture that looks like real usage.
+3. A metric with a clear direction.
+4. Enough trace labels to know what changed.
+5. A way to reject noisy results.
+
+For a CLI, that maps pretty cleanly:
+
+```bash
+# 1. Pick a real fixture
+REFERENCE_REPO=<repo-with-real-worktrees>
+
+# 2. Run enough samples to avoid lying to yourself
+WILLOW_TELEMETRY=off python3 skills/willow-autoresearch/scripts/bench_willow.py \
+  --reference-repo "$REFERENCE_REPO" \
+  --runs 7 \
+  --warmups 2 \
+  --json
+
+# 3. Make one change
+
+# 4. Prove it still works
+go test ./... -count=1
+
+# 5. Run the same benchmark again
+```
+
+The important rule is that you do not get to keep a change because it feels faster or because the diff looks like a performance improvement. Keep it because the benchmark says it is better.
+
+A rule like this changes how you work with agents. Instead of asking an agent to be right, you give it a loop where being wrong is cheap. It can try the simple thing, the weird thing, and the thing you would not have bothered testing. The benchmark decides what survives.
+
+## Faster by doing less
+
+I like this result because Willow got faster by doing less:
+
+- fewer git subprocesses
+- fewer repeated metadata reads
+- fewer tmux calls
+- fewer status checks
+
+For a tool like Willow, the ideal fix is almost invisible. I did not want a daemon or a new cache layer. I wanted fewer steps between typing `ww ls` and seeing the answer.
+
+The funny part is that autoresearch made the process feel less automated, not more. It forced the work to be specific. What command got faster? Which trace got smaller? Did the tests pass? Did the benchmark accept it? If not, revert it.
+
+The agent-assisted coding I trust is mundane: the agent runs the experiment again and again while I keep asking, "Did it get better?"
+
+For Willow, the answer was yes.
